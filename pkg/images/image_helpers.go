@@ -31,7 +31,9 @@ import (
 )
 
 // newImagePullJob constructs a job manifest for pulling an image to a node
-func newImagePullJob(imagecache *fledgedv1alpha2.ImageCache, image string, node *corev1.Node, imagePullPolicy string, busyboxImage string, serviceAccountName string) (*batchv1.Job, error) {
+func newImagePullJob(imagecache *fledgedv1alpha2.ImageCache, image string, node *corev1.Node,
+	imagePullPolicy string, busyboxImage string, serviceAccountName string,
+	jobPriorityClassName string) (*batchv1.Job, error) {
 	var pullPolicy corev1.PullPolicy = corev1.PullIfNotPresent
 	hostname := node.Labels["kubernetes.io/hostname"]
 	if imagecache == nil {
@@ -132,12 +134,18 @@ func newImagePullJob(imagecache *fledgedv1alpha2.ImageCache, image string, node 
 	if serviceAccountName != "" {
 		job.Spec.Template.Spec.ServiceAccountName = serviceAccountName
 	}
+	if jobPriorityClassName != "" {
+		job.Spec.Template.Spec.PriorityClassName = jobPriorityClassName
+	}
 	return job, nil
 }
 
 // newImageDeleteJob constructs a job manifest to delete an image from a node
-func newImageDeleteJob(imagecache *fledgedv1alpha2.ImageCache, image string, node *corev1.Node, containerRuntimeVersion string, dockerclientimage string, serviceAccountName string) (*batchv1.Job, error) {
+func newImageDeleteJob(imagecache *fledgedv1alpha2.ImageCache, image string, node *corev1.Node,
+	containerRuntimeVersion string, dockerclientimage string, serviceAccountName string,
+	imageDeleteJobHostNetwork bool, jobPriorityClassName string, criSocketPath string) (*batchv1.Job, error) {
 	hostname := node.Labels["kubernetes.io/hostname"]
+	socketPath := ""
 	if imagecache == nil {
 		glog.Error("imagecache pointer is nil")
 		return nil, fmt.Errorf("imagecache pointer is nil")
@@ -207,6 +215,7 @@ func newImageDeleteJob(imagecache *fledgedv1alpha2.ImageCache, image string, nod
 					},
 					RestartPolicy:    corev1.RestartPolicyNever,
 					ImagePullSecrets: imagecache.Spec.ImagePullSecrets,
+					HostNetwork:      imageDeleteJobHostNetwork,
 					Tolerations: []corev1.Toleration{
 						{
 							Operator: corev1.TolerationOpExists,
@@ -217,17 +226,35 @@ func newImageDeleteJob(imagecache *fledgedv1alpha2.ImageCache, image string, nod
 		},
 	}
 	if strings.Contains(containerRuntimeVersion, "containerd") {
-		job.Spec.Template.Spec.Containers[0].Args = []string{"-c", "exec /usr/bin/crictl --runtime-endpoint=unix:///run/containerd/containerd.sock  --image-endpoint=unix:///run/containerd/containerd.sock rmi " + image + " > /dev/termination-log 2>&1"}
-		job.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath = "/run/containerd/containerd.sock"
-		job.Spec.Template.Spec.Volumes[0].VolumeSource.HostPath.Path = "/run/containerd/containerd.sock"
+		if criSocketPath == "" {
+			socketPath = "/run/containerd/containerd.sock"
+		}
+		deleteCommand := "exec /usr/bin/crictl --runtime-endpoint=unix://" + socketPath + " --image-endpoint=unix://" + socketPath + " rmi " + image + " > /dev/termination-log 2>&1"
+		job.Spec.Template.Spec.Containers[0].Args = []string{"-c", deleteCommand}
+		job.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath = socketPath
+		job.Spec.Template.Spec.Volumes[0].VolumeSource.HostPath.Path = socketPath
 	}
 	if strings.Contains(containerRuntimeVersion, "crio") || strings.Contains(containerRuntimeVersion, "cri-o") {
-		job.Spec.Template.Spec.Containers[0].Args = []string{"-c", "exec /usr/bin/crictl --runtime-endpoint=unix:///var/run/crio/crio.sock  --image-endpoint=unix:///var/run/crio/crio.sock rmi " + image + " > /dev/termination-log 2>&1"}
-		job.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath = "/var/run/crio/crio.sock"
-		job.Spec.Template.Spec.Volumes[0].VolumeSource.HostPath.Path = "/var/run/crio/crio.sock"
+		if criSocketPath == "" {
+			socketPath = "/var/run/crio/crio.sock"
+		}
+		deleteCommand := "exec /usr/bin/crictl --runtime-endpoint=unix://" + socketPath + " --image-endpoint=unix://" + socketPath + " rmi " + image + " > /dev/termination-log 2>&1"
+		job.Spec.Template.Spec.Containers[0].Args = []string{"-c", deleteCommand}
+		job.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath = socketPath
+		job.Spec.Template.Spec.Volumes[0].VolumeSource.HostPath.Path = socketPath
+	}
+	if strings.Contains(containerRuntimeVersion, "docker") {
+		if criSocketPath == "" {
+			socketPath = "/var/run/docker.sock"
+		}
+		job.Spec.Template.Spec.Containers[0].VolumeMounts[0].MountPath = socketPath
+		job.Spec.Template.Spec.Volumes[0].VolumeSource.HostPath.Path = socketPath
 	}
 	if serviceAccountName != "" {
 		job.Spec.Template.Spec.ServiceAccountName = serviceAccountName
+	}
+	if jobPriorityClassName != "" {
+		job.Spec.Template.Spec.PriorityClassName = jobPriorityClassName
 	}
 	return job, nil
 }

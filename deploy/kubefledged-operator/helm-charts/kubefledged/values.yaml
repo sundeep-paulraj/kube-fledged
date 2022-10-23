@@ -6,14 +6,16 @@ controllerReplicaCount: 1
 webhookServerReplicaCount: 1
 controller:
   hostNetwork: false
+  priorityClassName: ""
 webhookServer:
-  enable: false
+  enable: true
   hostNetwork: false
+  priorityClassName: ""
 image:
   kubefledgedControllerRepository: docker.io/senthilrch/kubefledged-controller
   kubefledgedCRIClientRepository: docker.io/senthilrch/kubefledged-cri-client
-  busyboxImageRepository: gcr.io/google-containers/busybox
-  busyboxImageVersion: "1.27.2"
+  busyboxImageRepository: senthilrch/busybox
+  busyboxImageVersion: "1.35.0"
   kubefledgedWebhookServerRepository: docker.io/senthilrch/kubefledged-webhook-server
   pullPolicy: Always
 command: 
@@ -25,6 +27,10 @@ args:
   controllerImageCacheRefreshFrequency: 15m
   controllerImagePullPolicy: IfNotPresent
   controllerServiceAccountName: ""
+  controllerImageDeleteJobHostNetwork: false
+  controllerJobPriorityClassName: ""
+  controllerJobRetentionPolicy: "delete"
+  controllerCRISocketPath: ""
   webhookServerLogLevel: INFO
   webhookServerCertFile: /var/run/secrets/webhook-server/tls.crt
   webhookServerKeyFile: /var/run/secrets/webhook-server/tls.key

@@ -63,6 +63,11 @@ func newTestController(kubeclientset kubernetes.Interface, fledgedclientset clie
 	criClientImage := "senthilrch/fledged-docker-client:latest"
 	busyboxImage := "busybox:latest"
 	imagePullPolicy := "IfNotPresent"
+	serviceAccountName := "sa-kube-fledged"
+	imageDeleteJobHostNetwork := false
+	jobPriorityClassName := "priority-class-kube-fledged"
+	canDelete := false
+	socketPath := ""
 
 	/* 	startInformers := true
 	   	if startInformers {
@@ -72,8 +77,11 @@ func newTestController(kubeclientset kubernetes.Interface, fledgedclientset clie
 	   		fledgedInformerFactory.Start(stopCh)
 	   	} */
 
-	controller := NewController(kubeclientset, fledgedclientset, fledgedNameSpace, nodeInformer, imagecacheInformer,
-		imageCacheRefreshFrequency, imagePullDeadlineDuration, criClientImage, busyboxImage, imagePullPolicy)
+	controller := NewController(kubeclientset,
+		fledgedclientset, fledgedNameSpace, nodeInformer, imagecacheInformer,
+		imageCacheRefreshFrequency, imagePullDeadlineDuration, criClientImage,
+		busyboxImage, imagePullPolicy, serviceAccountName, imageDeleteJobHostNetwork,
+		jobPriorityClassName, canDelete, socketPath)
 	controller.nodesSynced = func() bool { return true }
 	controller.imageCachesSynced = func() bool { return true }
 	return controller, nodeInformer, imagecacheInformer
@@ -181,6 +189,10 @@ func TestPreFlightChecks(t *testing.T) {
 					{
 						ObjectMeta: metav1.ObjectMeta{
 							Name: "foo",
+							Labels: map[string]string{
+								"app":         "kubefledged",
+								"kubefledged": "kubefledged-image-manager",
+							},
 						},
 					},
 				},
